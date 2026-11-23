@@ -1,14 +1,21 @@
 # Geometry and tuning for the whiteboard camera module.
-# All lengths are millimetres in the WHITEBOARD FRAME, the 2D frame shared with
-# the robot calibration. The values below are placeholders for an A4-sized
-# drawing area and MUST be replaced by the measured values of the real setup.
+# All lengths are millimetres in the WHITEBOARD FRAME.
+#
+# Whiteboard frame used here (lab setup of 2026-11-23, board lying on the table):
+#   origin  top-left corner of the black square of marker 0
+#   x       from marker 0 towards marker 1 (along the long side of the board)
+#   y       from marker 0 towards marker 3
+# This frame is the camera module's own choice. It still has to be agreed with
+# the robot calibration, or converted to the robot's whiteboard frame.
 
 board:
   # Drawing area that the camera inspects.
-  x_min: 0.0
-  x_max: 300.0
-  y_min: 0.0
-  y_max: 200.0
+  # Strip between the two marker rows, clear of the paper around the markers.
+  # Proposal, to be confirmed by the team.
+  x_min: 20.0
+  x_max: 550.0
+  y_min: 65.0
+  y_max: 405.0
   # Facing the board, x points right. Set true if y points up, false if down.
   y_axis_up: false
   # Resolution of the rectified (top-down) image.
@@ -17,12 +24,16 @@ board:
 markers:
   # ArUco markers stuck on the board OUTSIDE the drawing area, upright.
   dictionary: DICT_4X4_50
-  size_mm: 40.0          # side length of the black square, measure after printing
+  size_mm: 35.0          # side length of the black square, measure after printing
   centers_mm:            # marker id: [x, y] of the marker centre
-    0: [-30.0, -30.0]
-    1: [330.0, -30.0]
-    2: [330.0, 230.0]
-    3: [-30.0, 230.0]
+    # Ruler, 2026-11-23, final marker positions. Distances between the top-left
+    # corners of the black squares: 0-1 545, 3-2 545, 0-3 433, 1-2 442, 0-2 705,
+    # 1-3 696 mm. Least-squares fit, residuals 0.8 mm or less.
+    # Centre = top-left corner + half the size.
+    0: [17.5, 17.5]
+    1: [563.1, 17.5]
+    2: [565.3, 460.0]
+    3: [19.7, 451.0]
   # Fewer visible markers than this: fall back to the last good homography.
   min_markers: 3
 

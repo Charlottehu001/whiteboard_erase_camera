@@ -1,12 +1,16 @@
 # Whiteboard Camera Module
 
-Camera part of the group project "Franka Panda draws and erases on a whiteboard".
+Camera part of the group project "Franka Research 3 (FR3) draws and erases on a whiteboard".
 The module looks at the whiteboard and reports whether ink is left and where,
 so the erase routine can check its result and erase again only where needed.
 
-**Status (2026-11-22):** the full pipeline, the ROS 2 node and the tools for
-the lab setup work on synthetic images. Nothing has been run on the real camera
-or robot yet; see [Lab checklist](#lab-checklist).
+**Status (2026-11-23):** working on the real setup (FR3, RealSense D435 at the
+gripper, whiteboard flat on the table). At the photo pose the module reports
+correctly whether there is ink on the board: clean board -> no ink, a drawing
+-> ink with its regions, after wiping -> no ink again. See
+[Running it in the lab](#running-it-in-the-lab). Still open: other pen colours,
+smeared boards, threshold tuning, the link to the robot's coordinate frame and
+erasing by the robot; see [Lab checklist](#lab-checklist).
 
 ## What it delivers
 
@@ -94,12 +98,113 @@ source /opt/ros/jazzy/setup.bash
 source .venv/bin/activate
 ```
 
+## Running it in the lab
+
+Everything below was run on 2026-11-23 on the laptop that is connected to the
+camera (USB 3) and to the robot (Ethernet).
+
+### Commands
+
+```bash
+~/code/whiteboard_camera/scripts/lab_start.sh    # start camera driver, detection node, live view
+~/code/whiteboard_camera/scripts/lab_view.sh     # open the live result window (top-down view)
+~/code/whiteboard_camera/scripts/lab_view.sh camera   # or: camera image with markers and drawing area
+~/code/whiteboard_camera/scripts/lab_check.sh    # ask once: is there ink, and where?
+~/code/whiteboard_camera/scripts/lab_stop.sh     # stop everything
+```
+
+- `lab_start.sh` can be run again at any time. It keeps a running camera
+  driver, restarts the detection node (so config changes are loaded) and opens
+  the view window if none is open. Do not start the RealSense driver by hand as
+  well and do not open `realsense-viewer` at the same time: only one program can
+  use the camera, two of them make the image rate collapse.
+- Logs are in `output/driver.log` and `output/node.log`.
+- `lab_check.sh` calls the service `/whiteboard_camera/detect`, the same call
+  the erase routine will make.
+
+Once per setup (new photo pose, moved markers, changed lighting), with a clean
+board and nothing in the camera's view:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+ros2 service call /whiteboard_camera/save_reference std_srvs/srv/Trigger
+```
+
+This stores the clean board as `data/reference.png`; the node uses it from then
+on, also after a restart.
+
+### Procedure for a check
+
+1. Arm at the photo pose and at rest; hands, pen and eraser out of the camera's
+   view. A hand or its shadow over the board is reported as ink.
+2. `scripts/lab_check.sh`
+
+### Result of the test
+
+A drawing was made by hand with a red whiteboard pen and then wiped off:
+
+```
+$ ~/code/whiteboard_camera/scripts/lab_check.sh
+ink present: True
+  erase around x=268.0 mm  y=143.2 mm  ink radius=2.7 mm
+  erase around x=308.5 mm  y=137.5 mm  ink radius=7.8 mm
+  erase around x=279.2 mm  y=163.8 mm  ink radius=22.7 mm
+  erase around x=313.0 mm  y=165.0 mm  ink radius=21.1 mm
+  erase around x=285.5 mm  y=200.0 mm  ink radius=20.9 mm
+  erase around x=309.8 mm  y=200.0 mm  ink radius=17.9 mm
+$ ~/code/whiteboard_camera/scripts/lab_check.sh      # after wiping
+ink present: False
+```
+
+| With the drawing | After wiping |
+|---|---|
+| ![ink detected](docs/lab_check_ink.png) | ![board clean](docs/lab_check_clean.png) |
+
+In the live view, red is the detected ink and the green circles are the regions
+reported to the erase routine, in millimetres in the whiteboard frame. The same
+sequence was recorded once more automatically with a single stroke (395 mm2 of
+ink, 6 regions, then 0 after wiping): [docs/lab_test_ink.png](docs/lab_test_ink.png),
+[docs/lab_test_erased.png](docs/lab_test_erased.png).
+
+### Setup used
+
+- Whiteboard frame: origin at the top-left corner of the black square of
+  marker 0, x towards marker 1, y towards marker 3. Drawing area 530 x 340 mm
+  between the marker rows. Marker positions from ruler measurements, see
+  [config/board.yaml](config/board.yaml).
+- Markers printed at 35 mm (the print came out smaller than the 40 mm of the
+  PDF, so `markers.size_mm` is 35).
+- Photo pose: camera about 72 cm above the board, slightly tilted so that the
+  reflection of the ceiling lights falls outside the drawing area. Joint angles
+  q = [-1.6845, -0.1021, 2.6110, -0.8855, -0.0803, 1.0475, 1.6581] rad.
+
+### Reading the robot pose
+
+The joint angles were read through the Franka Control Interface with the
+official Python library, in a separate folder so that it does not mix with the
+camera environment. The script only reads the state and sends no motion command.
+
+```bash
+mkdir -p ~/code/franka_pose && cd ~/code/franka_pose
+python3 -m venv .venv && .venv/bin/pip install pylibfranka numpy
+cp ~/code/whiteboard_camera/scripts/read_pose.py .     # the script is kept in this repository
+.venv/bin/python read_pose.py              # print joint angles and end-effector pose
+.venv/bin/python read_pose.py photo_pose   # also save them to poses/photo_pose.json
+```
+
+Before running it: the laptop's wired interface needs an address in the
+robot's network (robot 172.16.0.10, laptop 172.16.0.11/24), and FCI must be
+activated in Desk (`https://172.16.0.10/desk/`, arrow menu at the top right).
+Robot system version 5.9.0 needs libfranka 0.18.0 or newer; pylibfranka 0.21.3
+connected without a version error. Hand guiding works in Desk's PROG mode,
+FCI and automatic execution need EXEC mode.
+
 ## Try it without camera or robot
 
 ```bash
 python scripts/make_synthetic.py                    # test images -> data/synthetic/
 python scripts/inspect_image.py data/synthetic/drawing.png --show
-pytest                                              # 23 tests
+pytest                                              # 24 tests
 ```
 
 `inspect_image.py` prints the result and writes two pictures to `output/`:
@@ -151,8 +256,11 @@ calling `~/detect`.
 
 ## Lab checklist
 
-Steps that need the real hardware, in the order to do them. None of them is
-done yet. Every terminal needs
+Steps that need the real hardware, in the order to do them. Status on
+2026-11-23: steps 1, 3, 4 and 7 are done for the current setup; step 2 uses the
+camera module's own frame so far; steps 5, 6, 8, 9 and 10 are open. The steps
+show the individual commands; `scripts/lab_start.sh` wraps the start-up.
+Every terminal needs
 `cd ~/code/whiteboard_camera && source /opt/ros/jazzy/setup.bash && source .venv/bin/activate`.
 
 1. **Camera driver.** `sudo apt install ros-jazzy-realsense2-camera`. Plug the
@@ -222,8 +330,13 @@ done yet. Every terminal needs
 
 ## Known limitations
 
-- Verified on synthetic images only. Real ink, glare and camera noise will need
-  threshold tuning.
+- On the real setup only a red pen and a cleanly wiped board have been tested.
+  Other colours, faint strokes and smeared residue still need threshold tuning;
+  the faint end of a stroke drawn with little pressure was not marked.
+- A hand, the arm or a shadow over the board is reported as ink. Detection is
+  only valid at the photo pose with the view clear.
+- The reported coordinates are in the camera module's whiteboard frame. The
+  transform to the robot's frame is not determined yet.
 - Without a reference image, ink wider than `background_kernel_mm` (25 mm),
   such as filled shapes or broad residue, is not detected.
 - The reference image is valid only for the camera pose and lighting it was
@@ -246,7 +359,11 @@ whiteboard_camera/         the pipeline (no ROS dependency)
   pipeline.py              WhiteboardInspector: image -> result, debug picture
   synthetic.py             synthetic camera images with ground truth
 scripts/                   make_synthetic, inspect_image, save_reference, make_markers,
-                           pick_polygon (gripper mask)
+                           pick_polygon (gripper mask), estimate_layout (marker
+                           positions from images), lab_start / lab_stop / lab_view /
+                           lab_check (lab session helpers), read_pose (robot joint
+                           angles through FCI, needs pylibfranka)
+docs/                      result pictures of the lab tests
 ros/camera.py              ROS 2 node
 ros/capture.py             save one camera image (and its lens data) to data/real/
 ros/client_example.py      how another module calls the node
@@ -272,3 +389,42 @@ tests/test_pipeline.py     tests on synthetic images
   reference image and loads `data/reference.png` when it exists. All of it
   checked with the fake camera through ROS 2; `ros/webcam.py` delivers frames
   from the laptop webcam. Still nothing run on the lab hardware.
+- 2026-11-23 (lab): First run on the real hardware (FR3, RealSense D435 on USB 3,
+  1280x720 at 30 Hz, intrinsics fx = 928 px, no distortion). Markers printed at
+  35 mm and stuck on the board, which lies flat on the table. With the marker
+  positions measured by ruler the homography fit error on live images was
+  0.8 mm. Added `scripts/lab_start.sh` / `lab_stop.sh` (driver, node and live
+  view in one command) and `scripts/estimate_layout.py` (marker layout from an
+  image; compared with the ruler it was 1-2 % too large, up to 7 mm). The
+  markers were then moved outwards for a larger drawing area; the layout in the
+  config is currently the image-based estimate and is marked provisional. Open:
+  final photo pose, reference image, threshold tuning, frame agreement with
+  the robot calibration.
+- 2026-11-23 (lab, afternoon): Final setup fixed. Marker positions measured by
+  ruler (six distances between the top-left corners of the black squares:
+  545, 545, 433, 442, 705, 696 mm; least-squares residuals 0.8 mm or less) and
+  entered in `config/board.yaml`; drawing area 530 x 340 mm between the marker
+  rows. Homography fit error on live images 1.3 to 1.7 mm. Photo pose chosen so
+  that the ceiling-light glare falls outside the drawing area; joint angles
+  read through FCI with `~/code/franka_pose/read_pose.py` (pylibfranka, read
+  only): q = [-1.6845, -0.1021, 2.6110, -0.8855, -0.0803, 1.0475, 1.6581] rad,
+  camera about 72 cm above the table. Clean-board reference saved with the
+  `~/save_reference` service; 40 consecutive live frames then reported a clean
+  board. A second print of a marker (another group's) lies in view: detections
+  with a duplicate id are now resolved by the layout fit (test added, 24 tests).
+  First detection test on the real setup, drawn and erased by hand at the photo
+  pose: clean board -> `ink_present` false; one red stroke of about 13 cm ->
+  true, 395 mm2, 6 regions along the stroke; after wiping -> false, 0 mm2.
+  Result pictures: [docs/lab_test_ink.png](docs/lab_test_ink.png),
+  [docs/lab_test_erased.png](docs/lab_test_erased.png). Observed limits: the
+  faint tail of the stroke (light pen pressure) was below the threshold
+  `min_darkness` = 0.12 and not marked; a hand or shadow over the board is
+  reported as ink, so detection is only valid with the view clear. Not yet
+  done: other pen colours, erased-but-smeared boards, threshold tuning, the
+  link between this whiteboard frame and the robot, erasing by the robot.
+  Lab helpers added: `scripts/lab_view.sh` (live result window),
+  `scripts/lab_check.sh` (ask the camera once).
+  Second test with `scripts/lab_check.sh`, the call the erase routine will
+  use: a small drawing gave `ink present: True` with 6 regions, after wiping
+  `ink present: False` (screenshots in docs/). The module now detects
+  reliably whether there is ink on the board at the photo pose.

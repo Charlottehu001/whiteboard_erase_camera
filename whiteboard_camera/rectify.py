@@ -7,6 +7,8 @@ contributes its 4 corners, and H is fitted to all of them by least squares.
 """
 from __future__ import annotations
 
+import itertools
+
 import cv2
 import numpy as np
 
@@ -26,15 +28,40 @@ def detect_markers(image_bgr: np.ndarray, cfg: BoardConfig) -> dict[int, np.ndar
     params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
     detector = cv2.aruco.ArucoDetector(_aruco_dictionary(cfg.marker_dictionary), params)
     corners, ids, _rejected = detector.detectMarkers(gray)
-    found: dict[int, np.ndarray] = {}
     if ids is None:
-        return found
+        return {}
+    candidates: dict[int, list[np.ndarray]] = {}
     for marker_corners, marker_id in zip(corners, ids.flatten()):
         marker_id = int(marker_id)
-        # Ignore ids that are not part of this setup, and duplicates.
-        if marker_id in cfg.marker_centers_mm and marker_id not in found:
-            found[marker_id] = np.asarray(marker_corners, dtype=np.float64).reshape(4, 2)
-    return found
+        # Ignore ids that are not part of this setup.
+        if marker_id in cfg.marker_centers_mm:
+            candidates.setdefault(marker_id, []).append(
+                np.asarray(marker_corners, dtype=np.float64).reshape(4, 2)
+            )
+    return _resolve_duplicates(candidates, cfg)
+
+
+def _resolve_duplicates(candidates: dict[int, list[np.ndarray]], cfg: BoardConfig) -> dict[int, np.ndarray]:
+    """Pick one detection per id when an id is seen more than once.
+
+    A second print of a marker lying in view (e.g. a spare sheet on the table)
+    has the same id as the real one. The real one is the one that fits the
+    known layout together with the other markers, so every combination is tried
+    and the one with the smallest homography fit error wins.
+    """
+    if all(len(c) == 1 for c in candidates.values()):
+        return {i: c[0] for i, c in candidates.items()}
+    ids = sorted(candidates)
+    best, best_rms = None, float("inf")
+    for choice in itertools.product(*(range(len(candidates[i])) for i in ids)):
+        selection = {i: candidates[i][k] for i, k in zip(ids, choice)}
+        _, rms = estimate_homography(selection, cfg)
+        if rms < best_rms:
+            best, best_rms = selection, rms
+    if best is None:
+        # Too few different markers to judge by the layout: keep the largest of each.
+        best = {i: max(c, key=lambda q: cv2.contourArea(q.astype(np.float32))) for i, c in candidates.items()}
+    return best
 
 
 def apply_homography(H: np.ndarray, points: np.ndarray) -> np.ndarray:

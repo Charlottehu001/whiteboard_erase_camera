@@ -216,3 +216,23 @@ def test_lens_distortion_is_corrected():
     assert abs(x - 71.0) < 1.0 and abs(y - 50.0) < 1.0
     uncorrected = WhiteboardInspector(cfg).inspect(distorted)
     assert uncorrected.reprojection_rms_mm > corrected.reprojection_rms_mm
+
+
+def test_spare_marker_with_the_same_id_is_ignored():
+    import cv2
+
+    # A second print of marker 0 lying outside the board, e.g. a spare sheet.
+    image = render_scene(CFG, CAMERA)
+    reference = WhiteboardInspector(CFG).inspect(image)
+    spare = cv2.aruco.generateImageMarker(cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50), 0, 70)
+    for corner in ((1150, 30), (1150, 600), (30, 600)):
+        with_spare = image.copy()
+        y, x = corner[1], corner[0]
+        with_spare[y - 12 : y + 82, x - 12 : x + 82] = 235  # white paper around it
+        with_spare[y : y + 70, x : x + 70] = spare[..., None]
+        assert len(cv2.aruco.ArucoDetector(
+            cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50), cv2.aruco.DetectorParameters()
+        ).detectMarkers(with_spare)[1]) == 5
+        result = WhiteboardInspector(CFG).inspect(with_spare)
+        assert result.reprojection_rms_mm < 0.5
+        assert abs(result.reprojection_rms_mm - reference.reprojection_rms_mm) < 0.05
