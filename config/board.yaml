@@ -1,0 +1,49 @@
+# Geometry and tuning for the whiteboard camera module.
+# All lengths are millimetres in the WHITEBOARD FRAME, the 2D frame shared with
+# the robot calibration. The values below are placeholders for an A4-sized
+# drawing area and MUST be replaced by the measured values of the real setup.
+
+board:
+  # Drawing area that the camera inspects.
+  x_min: 0.0
+  x_max: 300.0
+  y_min: 0.0
+  y_max: 200.0
+  # Facing the board, x points right. Set true if y points up, false if down.
+  y_axis_up: false
+  # Resolution of the rectified (top-down) image.
+  px_per_mm: 2.0
+
+markers:
+  # ArUco markers stuck on the board OUTSIDE the drawing area, upright.
+  dictionary: DICT_4X4_50
+  size_mm: 40.0          # side length of the black square, measure after printing
+  centers_mm:            # marker id: [x, y] of the marker centre
+    0: [-30.0, -30.0]
+    1: [330.0, -30.0]
+    2: [330.0, 230.0]
+    3: [-30.0, 230.0]
+  # Fewer visible markers than this: fall back to the last good homography.
+  min_markers: 3
+
+segmentation:
+  # A pixel is ink if it is at least this fraction darker than the clean board
+  # in any colour channel. Lower = more sensitive to faint residue.
+  min_darkness: 0.12
+  # Only used without a reference image: ink wider than this is not detected.
+  background_kernel_mm: 25.0
+  # Ink blobs smaller than this are treated as noise.
+  min_component_area_mm2: 4.0
+  # Pixels at or above this value in all channels are glare: nothing can be
+  # seen there, so they are reported as unobserved.
+  saturation_level: 250
+
+regions:
+  # Ink is grouped by grid cells of this size, one circle per cell.
+  # Choose roughly the eraser width.
+  cell_mm: 40.0
+
+# Polygons in RAW IMAGE pixels that never show the board, e.g. the gripper
+# fingers. The camera is fixed to the gripper, so they are always at the same
+# pixels. Example: [[[0, 600], [300, 600], [300, 720], [0, 720]]]
+image_ignore_polygons: []
